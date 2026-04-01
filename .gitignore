@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.rocprofv3/
+rocprof_run/
+*.att
+*.out
