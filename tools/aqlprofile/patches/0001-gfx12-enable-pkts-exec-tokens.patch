@@ -1,0 +1,15 @@
+diff --git a/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h b/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h
+index 6ef27f1..d6fed66 100644
+--- a/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h
++++ b/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h
+@@ -492,9 +492,7 @@ class gfx12_cntx_prim {
+                            (SQ_TT_TOKEN_MASK_SQDEC_BIT | SQ_TT_TOKEN_MASK_SHDEC_BIT |
+                             SQ_TT_TOKEN_MASK_GFXUDEC_BIT | SQ_TT_TOKEN_MASK_CONTEXT_BIT |
+                             SQ_TT_TOKEN_MASK_COMP_BIT)) |
+-        SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, TOKEN_EXCLUDE,
+-                           ((1 << SQ_TT_TOKEN_EXCLUDE_VMEMEXEC_SHIFT) |
+-                            (1 << SQ_TT_TOKEN_EXCLUDE_ALUEXEC_SHIFT))) |
++        SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, TOKEN_EXCLUDE, 0) |
+         SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, EXCLUDE_BARRIER_WAIT,
+                            1);  // // See DEGFX12-10117
+     return sq_thread_trace_token_mask;
