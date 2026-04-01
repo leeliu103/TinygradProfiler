@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TinygradProfiler PKTS</title>
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./assets/d3.v7.min.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="headline">
+        <h1>TinygradProfiler PKTS</h1>
+        <p id="capture-summary">Loading timeline bundle...</p>
+      </div>
+      <button class="btn" id="zoom-to-fit-btn" type="button">Zoom To Fit</button>
+    </header>
+    <div id="status"></div>
+    <main class="main-layout">
+      <section id="profiler"></section>
+      <aside class="details-panel">
+        <section class="details-section">
+          <h2>Selection</h2>
+          <div id="details"></div>
+        </section>
+        <section class="details-section">
+          <h2>Instructions</h2>
+          <pre id="insts"></pre>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <div id="tooltip" class="wrap"></div>
+</body>
+</html>
