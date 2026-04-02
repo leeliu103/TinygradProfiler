@@ -9,13 +9,14 @@ It does not import the parent repo's `tinygrad` package at runtime. The required
 - decodes a rocprof ATT `.att` blob plus its matching `.out` code object
 - reconstructs the `PKTS SE:*` event stream that tinygrad renders
 - serializes the event stream to deterministic JSON
+- can capture one kernel, build a PKTS webpage bundle, and serve it with `profile-webui`
 - can extract RDNA3/RDNA4 ISA metadata and pseudocode into a single JSON file
 
 ## Scope
 
 - ATT timeline decode: RDNA4 / `gfx12*` only
 - ISA extraction: `rdna3` and `rdna4`
-- no frontend/UI
+- minimal PKTS webpage via `profile-webui`, not the full tinygrad viz app
 
 ## Install
 
@@ -53,9 +54,24 @@ tinygrad-profiler decode-att \
   --output /path/to/events.json
 ```
 
+## Capture and serve the PKTS UI
+
+```bash
+tinygrad-profiler profile-webui \
+  --kernel-name matmul_kernel \
+  --kernel-iteration 1 \
+  --se 0 \
+  --simd 1 \
+  --cu 0 \
+  -- python your_program.py
+```
+
+- `--kernel-name` must match the formatted kernel name seen by `rocprofv3`
+- the page is served on `0.0.0.0:8001`
+
 ## Getting the input files
 
-This tool does not collect ATT itself. You provide:
+For `decode-att`, you provide:
 
 - a raw ATT trace `.att`
 - the matching code object `.out`
