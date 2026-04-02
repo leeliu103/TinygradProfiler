@@ -641,16 +641,19 @@ class InstructionInfo:
   wave: int
   inst: Inst
 
-def map_insts(data:bytes, lib:bytes, target:str) -> Iterator[tuple[PacketType, InstructionInfo|None]]:
+def map_insts(data:bytes, lib:bytes, target:str, cu:int=0, simd:int=0) -> Iterator[tuple[PacketType, InstructionInfo|None]]:
   """maps SQTT packets to instructions, yields (packet, instruction_info or None)"""
   # map pcs to insts
   from tinygrad_profiler.timeline import amd_decode
   pc_map = amd_decode(lib, target)
   wave_pc:dict[int, int] = {}
-  # only processing packets on one [CU, SIMD] unit
-  def simd_select(p) -> bool: return getattr(p, "cu", 0) == 0 and getattr(p, "simd", 0) == 0
+  # Packets without explicit unit fields still belong to the selected ATT stream.
+  def unit_select(p) -> bool:
+    if hasattr(p, "cu") and getattr(p, "cu") != cu: return False
+    if hasattr(p, "simd") and getattr(p, "simd") != simd: return False
+    return True
   for p in decode(data):
-    if not simd_select(p): continue
+    if not unit_select(p): continue
     if isinstance(p, (WAVESTART, WAVESTART_RDNA4, CDNA_WAVESTART)):
       assert p.wave not in wave_pc, "only one inflight wave per unit"
       wave_pc[p.wave] = next(iter(pc_map))

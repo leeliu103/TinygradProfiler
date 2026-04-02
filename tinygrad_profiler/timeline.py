@@ -31,7 +31,7 @@ def amd_decode(lib: bytes, target: str) -> dict[int, Inst]:
   return addr_table
 
 
-def sqtt_timeline(data: bytes, lib: bytes, target: str) -> Generator[ProfileEvent, None, None]:
+def sqtt_timeline(data: bytes, lib: bytes, target: str, cu: int = 0, simd: int = 0) -> Generator[ProfileEvent, None, None]:
   from .vendor.amd.sqtt import (map_insts, InstructionInfo, PacketType, INST, InstOp, VALUINST, IMMEDIATE, IMMEDIATE_MASK, VMEMEXEC,
                                 ALUEXEC, INST_RDNA4, InstOpRDNA4, TS_DELTA_OR_MARK, TS_DELTA_OR_MARK_RDNA4, WAVEEND, WAVERDY)
 
@@ -77,7 +77,7 @@ def sqtt_timeline(data: bytes, lib: bytes, target: str) -> Generator[ProfileEven
   ns_per_tick = 10
   prev_pair: tuple[int, int] | None = None
   yield ProfilePointEvent("", "JSON", "waveColors", list(wave_colors.items()), ts=Decimal(0))
-  for p, info in map_insts(data, lib, target):
+  for p, info in map_insts(data, lib, target, cu=cu, simd=simd):
     if isinstance(p, (TS_DELTA_OR_MARK, TS_DELTA_OR_MARK_RDNA4)) and p.is_marker:
       pair = (p._time, p.delta)
       if prev_pair is None:
@@ -110,10 +110,9 @@ def sqtt_timeline(data: bytes, lib: bytes, target: str) -> Generator[ProfileEven
         yield from add(name, p)
 
 
-def decode_att_bytes(att_blob: bytes, codeobj_blob: bytes, target: str) -> list[ProfileEvent]:
-  return list(sqtt_timeline(att_blob, codeobj_blob, target))
+def decode_att_bytes(att_blob: bytes, codeobj_blob: bytes, target: str, cu: int = 0, simd: int = 0) -> list[ProfileEvent]:
+  return list(sqtt_timeline(att_blob, codeobj_blob, target, cu=cu, simd=simd))
 
 
-def decode_att_file(att_path: str | Path, codeobj_path: str | Path, target: str) -> list[ProfileEvent]:
-  return decode_att_bytes(Path(att_path).read_bytes(), Path(codeobj_path).read_bytes(), target)
-
+def decode_att_file(att_path: str | Path, codeobj_path: str | Path, target: str, cu: int = 0, simd: int = 0) -> list[ProfileEvent]:
+  return decode_att_bytes(Path(att_path).read_bytes(), Path(codeobj_path).read_bytes(), target, cu=cu, simd=simd)
