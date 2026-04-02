@@ -61,6 +61,20 @@ function formatCycles(cycles) {
 }
 
 const formatUnit = (value, unit = "") => d3.format(".3~s")(value) + unit;
+const formatCaptureSummary = metadata => {
+  const eventCount = metadata.event_count ?? metadata.events;
+  const selectedUnit = [metadata.se, metadata.cu, metadata.simd].every(value => value != null)
+    ? `SE ${metadata.se} / CU ${metadata.cu} / SIMD ${metadata.simd}` : null;
+  const summary = [
+    metadata.kernel_name,
+    metadata.kernel_iteration != null ? `iter ${metadata.kernel_iteration}` : null,
+    selectedUnit,
+    metadata.target,
+    eventCount != null ? `${eventCount} events` : null,
+  ].filter(Boolean);
+  if (summary.length) return summary.join(" · ");
+  return [metadata.att, metadata.codeobj, metadata.target, metadata.events != null ? `${metadata.events} events` : null].filter(Boolean).join(" · ");
+};
 
 function tabulate(rows) {
   const root = d3.create("div").classed("table-grid", true);
@@ -545,7 +559,7 @@ async function main() {
       }),
     ]);
     document.title = metadata.title || "TinygradProfiler PKTS";
-    captureSummary.textContent = [metadata.att, metadata.codeobj, metadata.target, metadata.events != null ? `${metadata.events} events` : null].filter(Boolean).join(" · ");
+    captureSummary.textContent = formatCaptureSummary(metadata) || "Timeline bundle loaded.";
     renderProfiler(timeline);
     statusEl.textContent = "";
   } catch (err) {

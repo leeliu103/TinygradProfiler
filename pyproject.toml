@@ -16,3 +16,5 @@ tinygrad-profiler = "tinygrad_profiler.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 
+[tool.setuptools.package-data]
+tinygrad_profiler = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.js"]
