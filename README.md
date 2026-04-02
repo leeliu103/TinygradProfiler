@@ -1,6 +1,6 @@
 # TinygradProfiler
 
-Standalone RDNA4-only ATT packet timeline decoder derived from tinygrad's SQTT parser.
+Standalone RDNA4-only ATT packet timeline decoder plus AMD ISA extractor derived from tinygrad.
 
 It does not import the parent repo's `tinygrad` package at runtime. The required AMD decode tables are vendored locally under `tinygrad_profiler/vendor`.
 
@@ -9,11 +9,12 @@ It does not import the parent repo's `tinygrad` package at runtime. The required
 - decodes a rocprof ATT `.att` blob plus its matching `.out` code object
 - reconstructs the `PKTS SE:*` event stream that tinygrad renders
 - serializes the event stream to deterministic JSON
+- can extract RDNA3/RDNA4 ISA metadata and pseudocode into a single JSON file
 
 ## Scope
 
-- RDNA4 / `gfx12*` only
-- packet timeline only
+- ATT timeline decode: RDNA4 / `gfx12*` only
+- ISA extraction: `rdna3` and `rdna4`
 - no frontend/UI
 
 ## Install
@@ -22,6 +23,25 @@ It does not import the parent repo's `tinygrad` package at runtime. The required
 cd /app/tinygrad/TinygradProfiler
 pip install -e .
 ```
+
+## Extract AMD ISA JSON
+
+```bash
+tinygrad-profiler extract-isa \
+  --arch rdna4 \
+  --out /path/to/rdna4_isa.json
+```
+
+`--arch rdna3` is also supported.
+
+That downloads and caches:
+
+- AMD's machine-readable ISA zip
+- the matching ISA PDF for the selected arch
+
+It merges the XML encoding and operand metadata with PDF pseudocode extraction, then writes one JSON file to `--out`.
+
+The download cache lives under `~/.cache/tinygrad-profiler/amd_isa/` unless `XDG_CACHE_HOME` is set.
 
 ## Decode an ATT trace
 
