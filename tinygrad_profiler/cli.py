@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ._amd_isa import SUPPORTED_ARCHES as ISA_ARCHES, extract_isa
 from ._deployer import build_web_bundle, start_web_server
-from ._orchestrator import orchestrate_capture
+from ._orchestrator import KernelSelectionError, orchestrate_capture
 from .serialize import dump_events
 from .timeline import decode_att_file
 
@@ -28,12 +28,13 @@ def cmd_decode_att(args: argparse.Namespace) -> None:
 def cmd_profile_webui(args: argparse.Namespace) -> None:
   command = args.command[1:] if args.command and args.command[0] == "--" else args.command
   if not command:
-    raise ValueError("profile-webui requires a command after '--'")
+    raise SystemExit("profile-webui requires a command after '--'")
   run_dir = None
   server = None
   try:
-    trace_data, run_dir = orchestrate_capture(command, args.kernel_name, args.kernel_iteration, se=args.se, cu=args.cu, simd=args.simd)
-    bundle_dir = build_web_bundle(trace_data, run_dir / "web", kernel_name=args.kernel_name, kernel_iteration=args.kernel_iteration,
+    trace_data, run_dir, selected_kernel = orchestrate_capture(command, args.kernel_iteration, se=args.se, cu=args.cu, simd=args.simd,
+                                                               kernel_filter=args.kernel_filter)
+    bundle_dir = build_web_bundle(trace_data, run_dir / "web", kernel_name=selected_kernel.display_name, kernel_iteration=args.kernel_iteration,
                                   se=args.se, cu=args.cu, simd=args.simd, title=PROFILE_WEBUI_TITLE)
     server = start_web_server(bundle_dir, host=PROFILE_WEBUI_HOST, port=PROFILE_WEBUI_PORT)
     bound_port = server.server_address[1]
@@ -45,6 +46,8 @@ def cmd_profile_webui(args: argparse.Namespace) -> None:
     print("interrupted")
     if run_dir is not None:
       print(f"run: {run_dir}")
+  except KernelSelectionError as exc:
+    raise SystemExit(str(exc)) from exc
   finally:
     if server is not None:
       server.server_close()
@@ -67,8 +70,8 @@ def build_parser() -> argparse.ArgumentParser:
   decode.set_defaults(func=cmd_decode_att)
 
   profile = sub.add_parser("profile-webui", help="Capture one ATT trace, build a static PKTS bundle, and serve it")
-  profile.add_argument("--kernel-name", required=True, help="Exact formatted kernel name passed to rocprof filtering")
-  profile.add_argument("--kernel-iteration", required=True, type=int, help="1-based iteration number for the selected kernel id")
+  profile.add_argument("--kernel-filter", help="Optional substring filter applied to discovered kernel names")
+  profile.add_argument("--kernel-iteration", required=True, type=int, help="1-based iteration number for the selected kernel")
   profile.add_argument("--se", required=True, type=int, help="Shader engine to trace")
   profile.add_argument("--simd", required=True, type=int, help="SIMD to trace within the selected CU")
   profile.add_argument("--cu", required=True, type=int, help="CU to trace within the selected shader engine")

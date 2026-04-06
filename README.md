@@ -58,7 +58,7 @@ tinygrad-profiler decode-att \
 
 ```bash
 tinygrad-profiler profile-webui \
-  --kernel-name matmul_kernel \
+  --kernel-filter matmul_kernel \
   --kernel-iteration 1 \
   --se 0 \
   --simd 1 \
@@ -66,7 +66,10 @@ tinygrad-profiler profile-webui \
   -- python your_program.py
 ```
 
-- `--kernel-name` must match the formatted kernel name seen by `rocprofv3`
+- `profile-webui` runs a discovery pass first, then reruns with ATT once one kernel is selected
+- if `--kernel-filter` is omitted and discovery finds one kernel, it auto-selects that kernel
+- if discovery finds multiple kernels, it prints the candidate list and asks you to rerun with `--kernel-filter`
+- `--kernel-filter` matches the shortened discovered kernel name, for example `mul_mat_vec_q<(ggml_type)8, 1, true, false>`
 - the page is served on `0.0.0.0:8001`
 
 ## Getting the input files

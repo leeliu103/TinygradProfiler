@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime, os, re, secrets, shutil, sqlite3, subprocess
+import datetime, os, re, secrets, shlex, shutil, sqlite3, subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
@@ -22,6 +22,13 @@ class TraceData(TypedDict):
 
 
 @dataclass(frozen=True)
+class KernelSummary:
+  raw_name: str
+  display_name: str
+  dispatch_count: int
+
+
+@dataclass(frozen=True)
 class CaptureCandidate:
   dispatch_id: int
   kernel_id: int
@@ -36,37 +43,45 @@ _ATT_RE = re.compile(r"(?P<pid>\d+)_(?P<agent>\d+)_shader_engine_(?P<se>\d+)_(?P
 _OUT_RE = re.compile(r"(?P<pid>\d+)_(?P<target>gfx\d+)_code_object_id_(?P<codeobj>\d+)\.out$")
 
 
-def orchestrate_capture(argv: list[str], kernel_name: str, kernel_iteration: int, se: int, simd: int, cu: int = 0,
-                        runs_root: Path | None = None, cwd: str | Path | None = None) -> tuple[TraceData, Path]:
+class KernelSelectionError(RuntimeError):
+  pass
+
+
+def orchestrate_capture(argv: list[str], kernel_iteration: int, se: int, simd: int, cu: int = 0, kernel_filter: str | None = None,
+                        runs_root: Path | None = None, cwd: str | Path | None = None) -> tuple[TraceData, Path, KernelSummary]:
   if not argv:
     raise ValueError("argv must not be empty")
-  if not kernel_name:
-    raise ValueError("kernel_name must not be empty")
   if kernel_iteration < 1:
     raise ValueError(f"kernel_iteration must be >= 1, got {kernel_iteration}")
   if se < 0 or cu < 0 or simd < 0:
     raise ValueError(f"expected non-negative se/cu/simd, got se={se} cu={cu} simd={simd}")
+  kernel_filter = kernel_filter.strip() or None if kernel_filter is not None else None
 
   repo_root = Path(__file__).resolve().parent.parent
   root = runs_root if runs_root is not None else repo_root / "runs"
   run_dir = _create_run_dir(root)
+  discovery_dir = run_dir / "discover"
+  discovery_dir.mkdir(parents=True, exist_ok=False)
+  subprocess.run(_rocprof_discovery_command(argv, discovery_dir), cwd=str(Path.cwd() if cwd is None else Path(cwd)), check=True)
+  selected_kernel = _select_kernel(discovery_dir, kernel_filter)
+
   capture_dir = run_dir / "capture"
   capture_dir.mkdir(parents=True, exist_ok=False)
 
   aql_build_dir = _ensure_patched_aqlprofile(repo_root)
   att_decoder_dir = _find_att_decoder_dir()
-  cmd = _rocprof_command(argv, capture_dir, kernel_name=kernel_name, kernel_iteration=kernel_iteration, se=se, cu=cu, simd=simd,
-                         att_decoder_dir=att_decoder_dir)
+  cmd = _rocprof_att_command(argv, capture_dir, kernel_name=selected_kernel.raw_name, kernel_iteration=kernel_iteration, se=se, cu=cu, simd=simd,
+                             att_decoder_dir=att_decoder_dir)
   env = _rocprof_env(aql_build_dir, att_decoder_dir)
   subprocess.run(cmd, cwd=str(Path.cwd() if cwd is None else Path(cwd)), env=env, check=True)
 
-  candidate = _discover_candidate(capture_dir, kernel_name, kernel_iteration)
+  candidate = _discover_candidate(capture_dir, selected_kernel.raw_name, kernel_iteration)
   events = decode_att_file(candidate.att_path, candidate.codeobj_path, candidate.target, cu=cu, simd=simd)
   if not events:
-    raise RuntimeError(f"kernel {kernel_name!r} iteration {kernel_iteration} dispatch {candidate.dispatch_id} decoded to zero events")
+    raise RuntimeError(f"kernel {selected_kernel.display_name!r} iteration {kernel_iteration} dispatch {candidate.dispatch_id} decoded to zero events")
 
   trace_data: TraceData = {"target": candidate.target, "traces": [{"se": candidate.se, "cu": cu, "simd": simd, "events": events}]}
-  return trace_data, run_dir
+  return trace_data, run_dir, selected_kernel
 
 
 def _create_run_dir(runs_root: Path) -> Path:
@@ -118,8 +133,19 @@ def _rocprof_env(aql_build_dir: Path, att_decoder_dir: Path) -> dict[str, str]:
   return env
 
 
-def _rocprof_command(argv: list[str], capture_dir: Path, *, kernel_name: str, kernel_iteration: int, se: int, cu: int, simd: int,
-                     att_decoder_dir: Path) -> list[str]:
+def _rocprof_discovery_command(argv: list[str], capture_dir: Path) -> list[str]:
+  return [
+    "rocprofv3",
+    "--kernel-trace",
+    "-d",
+    str(capture_dir),
+    "--",
+    *argv,
+  ]
+
+
+def _rocprof_att_command(argv: list[str], capture_dir: Path, *, kernel_name: str, kernel_iteration: int, se: int, cu: int, simd: int,
+                         att_decoder_dir: Path) -> list[str]:
   return [
     "rocprofv3",
     "--att",
@@ -145,6 +171,26 @@ def _rocprof_command(argv: list[str], capture_dir: Path, *, kernel_name: str, ke
 
 def _exact_kernel_regex(kernel_name: str) -> str:
   return f"^{re.escape(kernel_name)}$"
+
+
+def _select_kernel(discovery_dir: Path, kernel_filter: str | None) -> KernelSummary:
+  try:
+    results_db = _find_results_db(discovery_dir)
+  except FileNotFoundError as exc:
+    raise KernelSelectionError(f"no kernels found in rocprof results under {discovery_dir}") from exc
+  summaries = _query_kernel_summaries(results_db)
+  if not summaries:
+    raise KernelSelectionError(f"no kernels found in rocprof results under {discovery_dir}")
+  matches = [summary for summary in summaries if kernel_filter is None or kernel_filter in summary.display_name]
+  if not matches:
+    raise KernelSelectionError(f"no kernels matched --kernel-filter {kernel_filter!r}\n\navailable kernels:\n{_format_kernel_summaries(summaries)}")
+  if len(matches) == 1:
+    return matches[0]
+  if kernel_filter is None:
+    raise KernelSelectionError("multiple kernels found; rerun with --kernel-filter to select one:\n\n"
+                               f"{_format_kernel_summaries(matches)}")
+  raise KernelSelectionError(f"--kernel-filter {kernel_filter!r} matched multiple kernels; refine the filter:\n\n"
+                             f"{_format_kernel_summaries(matches)}")
 
 
 def _discover_candidate(capture_dir: Path, kernel_name: str, kernel_iteration: int) -> CaptureCandidate:
@@ -220,3 +266,50 @@ def _query_dispatch_rows(results_db: Path, kernel_name: str) -> list[dict[str, i
                               (kernel_name,)).fetchall()
   return [{"dispatch_id": int(dispatch_id), "kernel_id": int(kernel_id), "kernel_name": str(kernel_name), "code_object_id": int(code_object_id)}
           for dispatch_id, kernel_id, kernel_name, code_object_id in rows]
+
+
+def _query_kernel_summaries(results_db: Path) -> list[KernelSummary]:
+  with sqlite3.connect(results_db) as connection:
+    rows = connection.execute("SELECT name, COUNT(*) AS dispatch_count FROM kernels WHERE name IS NOT NULL GROUP BY name "
+                              "ORDER BY dispatch_count DESC, name ASC").fetchall()
+  return [KernelSummary(raw_name=str(raw_name), display_name=_display_kernel_name(str(raw_name)), dispatch_count=int(dispatch_count))
+          for raw_name, dispatch_count in rows]
+
+
+def _display_kernel_name(raw_name: str) -> str:
+  prefix = raw_name[:param_start] if (param_start := _top_level_param_start(raw_name)) is not None else raw_name
+  last_space = -1
+  depth = 0
+  for idx, ch in enumerate(prefix):
+    if ch == "<":
+      depth += 1
+    elif ch == ">":
+      depth = max(0, depth - 1)
+    elif ch.isspace() and depth == 0:
+      last_space = idx
+  return (prefix[last_space + 1:] if last_space >= 0 else prefix).strip() or raw_name
+
+
+def _top_level_param_start(signature: str) -> int | None:
+  depth = 0
+  for idx, ch in enumerate(signature):
+    if ch == "<":
+      depth += 1
+    elif ch == ">":
+      depth = max(0, depth - 1)
+    elif ch == "(" and depth == 0:
+      return idx
+  return None
+
+
+def _format_kernel_summaries(summaries: list[KernelSummary]) -> str:
+  display_counts: dict[str, int] = {}
+  for summary in summaries:
+    display_counts[summary.display_name] = display_counts.get(summary.display_name, 0) + 1
+  lines: list[str] = []
+  for idx, summary in enumerate(summaries):
+    lines.append(f"[{idx}] {summary.display_name} (dispatches={summary.dispatch_count})")
+    lines.append(f"    --kernel-filter {shlex.quote(summary.display_name)}")
+    if display_counts[summary.display_name] > 1:
+      lines.append(f"    raw: {summary.raw_name}")
+  return "\n".join(lines)
