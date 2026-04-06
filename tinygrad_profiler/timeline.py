@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools, re
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Generator
@@ -15,27 +16,45 @@ wave_colors = {"WMMA": "#1F7857", **{x:"#ffffc0" for x in ["VALU", "VINTERP"]}, 
                "JUMP_NO": "#fb8500", "JUMP": "#ffb703", "WAVERDY": "#1a2a2a"}
 
 
-def amd_decode(lib: bytes, target: str) -> dict[int, Inst]:
+@dataclass(frozen=True)
+class CodeRegion:
+  start_addr: int
+  end_addr: int | None = None
+
+
+def amd_decode(lib: bytes, target: str, *, code_region: CodeRegion | None = None) -> dict[int, Inst]:
   if not target.startswith("gfx12"):
     raise ValueError(f"RDNA4-only standalone decoder, got target={target}")
   text = get_elf_section(lib, ".text")
-  off, buf = text.sh_addr, text.content
+  text_start, text_end = text.sh_addr, text.sh_addr + len(text.content)
+  decode_start = text_start if code_region is None else code_region.start_addr
+  decode_end = text_end if code_region is None or code_region.end_addr is None else code_region.end_addr
+  if decode_start < text_start or decode_start >= text_end:
+    raise ValueError(f"decode start 0x{decode_start:x} is outside .text [0x{text_start:x}, 0x{text_end:x})")
+  if decode_end <= decode_start or decode_end > text_end:
+    raise ValueError(f"decode end 0x{decode_end:x} is outside .text [0x{text_start:x}, 0x{text_end:x})")
+  off, buf = decode_start, text.content[decode_start - text_start:decode_end - text_start]
   addr_table: dict[int, Inst] = {}
   offset = 0
   while offset < len(buf):
     remaining = buf[offset:]
+    if remaining and not any(remaining):
+      break
     fmt = detect_format(remaining)
     decoded = fmt.from_bytes(remaining)
     addr_table[off + offset] = decoded
     offset += decoded.size()
+  if not addr_table:
+    raise ValueError(f"no instructions decoded from .text slice [0x{decode_start:x}, 0x{decode_end:x})")
   return addr_table
 
 
-def sqtt_timeline(data: bytes, lib: bytes, target: str, cu: int = 0, simd: int = 0) -> Generator[ProfileEvent, None, None]:
+def sqtt_timeline(data: bytes, lib: bytes, target: str, cu: int = 0, simd: int = 0,
+                  code_region: CodeRegion | None = None) -> Generator[ProfileEvent, None, None]:
   from .vendor.amd.sqtt import (map_insts, InstructionInfo, PacketType, INST, InstOp, VALUINST, IMMEDIATE, IMMEDIATE_MASK, VMEMEXEC,
                                 ALUEXEC, INST_RDNA4, InstOpRDNA4, TS_DELTA_OR_MARK, TS_DELTA_OR_MARK_RDNA4, WAVEEND, WAVERDY)
 
-  pc_map = {addr: str(inst) for addr, inst in amd_decode(lib, target).items()}
+  pc_map = {addr: str(inst) for addr, inst in amd_decode(lib, target, code_region=code_region).items()}
   row_ends: dict[str, Decimal] = {}
   row_counts: dict[str, itertools.count] = {}
   curr_barrier: dict[int, ProfileRangeEvent] = {}
@@ -77,7 +96,9 @@ def sqtt_timeline(data: bytes, lib: bytes, target: str, cu: int = 0, simd: int =
   ns_per_tick = 10
   prev_pair: tuple[int, int] | None = None
   yield ProfilePointEvent("", "JSON", "waveColors", list(wave_colors.items()), ts=Decimal(0))
-  for p, info in map_insts(data, lib, target, cu=cu, simd=simd):
+  for p, info in map_insts(data, lib, target, cu=cu, simd=simd,
+                           start_addr=None if code_region is None else code_region.start_addr,
+                           end_addr=None if code_region is None else code_region.end_addr):
     if isinstance(p, (TS_DELTA_OR_MARK, TS_DELTA_OR_MARK_RDNA4)) and p.is_marker:
       pair = (p._time, p.delta)
       if prev_pair is None:
@@ -110,9 +131,11 @@ def sqtt_timeline(data: bytes, lib: bytes, target: str, cu: int = 0, simd: int =
         yield from add(name, p)
 
 
-def decode_att_bytes(att_blob: bytes, codeobj_blob: bytes, target: str, cu: int = 0, simd: int = 0) -> list[ProfileEvent]:
-  return list(sqtt_timeline(att_blob, codeobj_blob, target, cu=cu, simd=simd))
+def decode_att_bytes(att_blob: bytes, codeobj_blob: bytes, target: str, cu: int = 0, simd: int = 0,
+                     code_region: CodeRegion | None = None) -> list[ProfileEvent]:
+  return list(sqtt_timeline(att_blob, codeobj_blob, target, cu=cu, simd=simd, code_region=code_region))
 
 
-def decode_att_file(att_path: str | Path, codeobj_path: str | Path, target: str, cu: int = 0, simd: int = 0) -> list[ProfileEvent]:
-  return decode_att_bytes(Path(att_path).read_bytes(), Path(codeobj_path).read_bytes(), target, cu=cu, simd=simd)
+def decode_att_file(att_path: str | Path, codeobj_path: str | Path, target: str, cu: int = 0, simd: int = 0,
+                    code_region: CodeRegion | None = None) -> list[ProfileEvent]:
+  return decode_att_bytes(Path(att_path).read_bytes(), Path(codeobj_path).read_bytes(), target, cu=cu, simd=simd, code_region=code_region)

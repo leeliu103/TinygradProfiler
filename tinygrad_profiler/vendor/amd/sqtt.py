@@ -641,11 +641,13 @@ class InstructionInfo:
   wave: int
   inst: Inst
 
-def map_insts(data:bytes, lib:bytes, target:str, cu:int=0, simd:int=0) -> Iterator[tuple[PacketType, InstructionInfo|None]]:
+def map_insts(data:bytes, lib:bytes, target:str, cu:int=0, simd:int=0,
+              start_addr:int|None=None, end_addr:int|None=None) -> Iterator[tuple[PacketType, InstructionInfo|None]]:
   """maps SQTT packets to instructions, yields (packet, instruction_info or None)"""
   # map pcs to insts
-  from tinygrad_profiler.timeline import amd_decode
-  pc_map = amd_decode(lib, target)
+  from tinygrad_profiler.timeline import CodeRegion, amd_decode
+  code_region = None if start_addr is None else CodeRegion(start_addr, end_addr)
+  pc_map = amd_decode(lib, target, code_region=code_region)
   wave_pc:dict[int, int] = {}
   # Packets without explicit unit fields still belong to the selected ATT stream.
   def unit_select(p) -> bool:

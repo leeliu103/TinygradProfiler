@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from .events import ProfileEvent
-from .timeline import decode_att_file
+from .timeline import CodeRegion, decode_att_file
 
 
 class TraceEntry(TypedDict):
@@ -37,6 +37,7 @@ class CaptureCandidate:
   target: str
   att_path: Path
   codeobj_path: Path
+  code_region: CodeRegion
 
 
 _ATT_RE = re.compile(r"(?P<pid>\d+)_(?P<agent>\d+)_shader_engine_(?P<se>\d+)_(?P<dispatch>\d+)\.att$")
@@ -76,7 +77,7 @@ def orchestrate_capture(argv: list[str], kernel_iteration: int, se: int, simd: i
   subprocess.run(cmd, cwd=str(Path.cwd() if cwd is None else Path(cwd)), env=env, check=True)
 
   candidate = _discover_candidate(capture_dir, selected_kernel.raw_name, kernel_iteration)
-  events = decode_att_file(candidate.att_path, candidate.codeobj_path, candidate.target, cu=cu, simd=simd)
+  events = decode_att_file(candidate.att_path, candidate.codeobj_path, candidate.target, cu=cu, simd=simd, code_region=candidate.code_region)
   if not events:
     raise RuntimeError(f"kernel {selected_kernel.display_name!r} iteration {kernel_iteration} dispatch {candidate.dispatch_id} decoded to zero events")
 
@@ -213,8 +214,9 @@ def _discover_candidate(capture_dir: Path, kernel_name: str, kernel_iteration: i
                             f"under {capture_dir}; captured dispatches: {captured}")
   if (codeobj_info := out_files.get(dispatch["code_object_id"])) is None:
     raise FileNotFoundError(f"missing code object {dispatch['code_object_id']} for kernel {kernel_name!r} under {capture_dir}")
+  code_region = _query_kernel_code_region(results_db, kernel_id=dispatch["kernel_id"], code_object_id=dispatch["code_object_id"])
   return CaptureCandidate(dispatch_id=dispatch["dispatch_id"], kernel_id=dispatch["kernel_id"], kernel_name=dispatch["kernel_name"], se=att_info["se"],
-                          target=codeobj_info["target"], att_path=att_info["path"], codeobj_path=codeobj_info["path"])
+                          target=codeobj_info["target"], att_path=att_info["path"], codeobj_path=codeobj_info["path"], code_region=code_region)
 
 
 def _find_results_db(capture_dir: Path) -> Path:
@@ -258,6 +260,30 @@ def _match_kernel_iteration(dispatch_rows: list[dict[str, int | str]], kernel_it
 
 def _format_dispatch_rows(dispatch_rows: list[dict[str, int | str]]) -> str:
   return ", ".join(f"kernel_id={dispatch['kernel_id']} dispatch_id={dispatch['dispatch_id']}" for dispatch in dispatch_rows)
+
+
+def _query_kernel_code_region(results_db: Path, kernel_id: int, code_object_id: int) -> CodeRegion:
+  with sqlite3.connect(results_db) as connection:
+    kernel_row = connection.execute("SELECT kernel_address FROM kernel_symbols WHERE kernel_id = ? AND code_object_id = ? "
+                                    "ORDER BY kernel_address ASC LIMIT 1", (kernel_id, code_object_id)).fetchone()
+    if kernel_row is None or kernel_row[0] is None:
+      raise ValueError(f"kernel_id={kernel_id} code_object_id={code_object_id} is missing kernel_symbols metadata")
+    code_object_row = connection.execute("SELECT load_delta, load_base FROM code_objects WHERE id = ?", (code_object_id,)).fetchone()
+    if code_object_row is None or (code_object_row[0] is None and code_object_row[1] is None):
+      raise ValueError(f"code_object_id={code_object_id} is missing load_delta metadata")
+    start_runtime = int(kernel_row[0])
+    next_row = connection.execute("SELECT kernel_address FROM kernel_symbols WHERE code_object_id = ? AND kernel_address > ? "
+                                  "ORDER BY kernel_address ASC LIMIT 1", (code_object_id, start_runtime)).fetchone()
+  translation_delta = int(code_object_row[0] if code_object_row[0] is not None else code_object_row[1])
+  start_addr = start_runtime - translation_delta
+  if start_addr < 0:
+    raise ValueError(f"kernel_id={kernel_id} code_object_id={code_object_id} has invalid start address 0x{start_addr:x}")
+  end_addr = None
+  if next_row is not None and next_row[0] is not None:
+    end_addr = int(next_row[0]) - translation_delta
+    if end_addr <= start_addr:
+      raise ValueError(f"kernel_id={kernel_id} code_object_id={code_object_id} has non-increasing range 0x{start_addr:x}-0x{end_addr:x}")
+  return CodeRegion(start_addr=start_addr, end_addr=end_addr)
 
 
 def _query_dispatch_rows(results_db: Path, kernel_name: str) -> list[dict[str, int | str]]:
