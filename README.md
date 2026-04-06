@@ -10,6 +10,7 @@ It does not import the parent repo's `tinygrad` package at runtime. The required
 - reconstructs the `PKTS SE:*` event stream that tinygrad renders
 - serializes the event stream to deterministic JSON
 - can capture one kernel, build a PKTS webpage bundle, and serve it with `profile-webui`
+- can capture one kernel and write a serialized agent bundle with `profile-agent`
 - can extract RDNA3/RDNA4 ISA metadata and pseudocode into a single JSON file
 
 ## Scope
@@ -71,6 +72,21 @@ tinygrad-profiler profile-webui \
 - if discovery finds multiple kernels, it prints the candidate list and asks you to rerun with `--kernel-filter`
 - `--kernel-filter` matches the shortened discovered kernel name, for example `mul_mat_vec_q<(ggml_type)8, 1, true, false>`
 - the page is served on `0.0.0.0:8001`
+
+## Capture and write the agent bundle
+
+```bash
+tinygrad-profiler profile-agent \
+  --kernel-filter matmul_kernel \
+  --kernel-iteration 1 \
+  --se 0 \
+  --simd 1 \
+  --cu 0 \
+  -- python your_program.py
+```
+
+- `profile-agent` uses the same capture path and kernel selection flow as `profile-webui`
+- it writes `metadata.json` plus serialized `events.json` under `runs/<id>/agent/`
 
 ## Getting the input files
 
