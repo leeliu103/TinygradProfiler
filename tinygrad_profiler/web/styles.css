@@ -143,12 +143,13 @@ body {
 
 .details-section {
   padding: 18px 20px;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .details-section + .details-section {
   border-top: 1px solid #22232a;
   flex: 1 1 auto;
+  min-height: 0;
 }
 
 .details-section h2 {

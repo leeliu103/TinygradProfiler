@@ -131,7 +131,7 @@ function timeAtCycle(clk) {
   let nanoseconds = 0;
   let freq = null;
   for (const [start, value] of data.tracks.get("Shader Clock").valueMap) {
-    if (freq != null && current < start) {
+    if (freq != null && freq > 0 && current < start) {
       const end = Math.min(clk, start);
       nanoseconds += (end - current) * 1e9 / freq;
       current = end;
@@ -503,13 +503,17 @@ function renderProfiler(buf) {
   }
 
   function findRectAtPosition(clientX, clientY) {
+    let track = null;
+    for (const k of data.tracks.keys()) {
+      const r = rect(document.getElementById(k));
+      if (clientY >= r.y && clientY <= r.y + r.height) { track = data.tracks.get(k); break; }
+    }
+    if (track == null) return null;
     const canvasRect = rect(canvas);
     const x = ((clientX - canvasRect.left) * (canvas.width / canvasRect.width)) / dpr;
     const y = ((clientY - canvasRect.top) * (canvas.height / canvasRect.height)) / dpr;
-    for (const [, track] of data.tracks) {
-      for (const visible of track.visible) {
-        if (y >= visible.y0 && y <= visible.y1 && x >= visible.x0 && x <= visible.x1) return visible.arg;
-      }
+    for (const visible of track.visible) {
+      if (y >= visible.y0 && y <= visible.y1 && x >= visible.x0 && x <= visible.x1) return visible.arg;
     }
     return null;
   }
