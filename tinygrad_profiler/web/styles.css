@@ -165,6 +165,7 @@ body {
 }
 
 #insts {
+  position: relative;
   height: calc(100% - 26px);
   overflow: auto;
   background: #121420;
