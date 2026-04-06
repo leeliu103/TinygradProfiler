@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
   profile.add_argument("--kernel-iteration", required=True, type=int, help="1-based iteration number for the selected kernel id")
   profile.add_argument("--se", required=True, type=int, help="Shader engine to trace")
   profile.add_argument("--simd", required=True, type=int, help="SIMD to trace within the selected CU")
-  profile.add_argument("--cu", type=int, default=0, help="CU to trace within the selected shader engine")
+  profile.add_argument("--cu", required=True, type=int, help="CU to trace within the selected shader engine")
   profile.add_argument("command", nargs=argparse.REMAINDER, help="Command to profile. Separate with '--'")
   profile.set_defaults(func=cmd_profile_webui)
   return parser
