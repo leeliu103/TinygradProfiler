@@ -236,7 +236,9 @@ class VDSTYField(BitField):
 # ══════════════════════════════════════════════════════════════
 
 import functools
-from tinygrad_profiler.vendor.amd.rdna4.operands import OPERANDS
+from tinygrad_profiler.vendor.amd.rdna3.operands import OPERANDS as OPERANDS_RDNA3
+from tinygrad_profiler.vendor.amd.rdna4.operands import OPERANDS as OPERANDS_RDNA4
+OPERANDS = {**OPERANDS_RDNA3, **OPERANDS_RDNA4}
 
 # ══════════════════════════════════════════════════════════════
 # Inst base class

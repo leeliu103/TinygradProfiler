@@ -22,9 +22,16 @@ class CodeRegion:
   end_addr: int | None = None
 
 
+def _arch_from_target(target: str) -> str:
+  if target.startswith("gfx11"):
+    return "rdna3"
+  if target.startswith("gfx12"):
+    return "rdna4"
+  raise ValueError(f"RDNA3/RDNA4 standalone decoder, got target={target}")
+
+
 def amd_decode(lib: bytes, target: str, *, code_region: CodeRegion | None = None) -> dict[int, Inst]:
-  if not target.startswith("gfx12"):
-    raise ValueError(f"RDNA4-only standalone decoder, got target={target}")
+  arch = _arch_from_target(target)
   text = get_elf_section(lib, ".text")
   text_start, text_end = text.sh_addr, text.sh_addr + len(text.content)
   decode_start = text_start if code_region is None else code_region.start_addr
@@ -40,7 +47,7 @@ def amd_decode(lib: bytes, target: str, *, code_region: CodeRegion | None = None
     remaining = buf[offset:]
     if remaining and not any(remaining):
       break
-    fmt = detect_format(remaining)
+    fmt = detect_format(remaining, arch)
     decoded = fmt.from_bytes(remaining)
     addr_table[off + offset] = decoded
     offset += decoded.size()

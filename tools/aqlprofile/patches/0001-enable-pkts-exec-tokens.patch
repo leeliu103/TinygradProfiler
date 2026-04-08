@@ -1,5 +1,21 @@
+diff --git a/projects/aqlprofile/gfxip/gfx11/gfx11_primitives.h b/projects/aqlprofile/gfxip/gfx11/gfx11_primitives.h
+index f53f251051..cc482b1a4f 100644
+--- a/projects/aqlprofile/gfxip/gfx11/gfx11_primitives.h
++++ b/projects/aqlprofile/gfxip/gfx11/gfx11_primitives.h
+@@ -564,10 +564,7 @@ class gfx11_cntx_prim {
+     uint32_t sq_thread_trace_token_mask =
+         SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, REG_EXCLUDE, 0x3) |
+         SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, REG_INCLUDE, SQTT_TOKEN_REG_USERDATA) |
+-        SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, TOKEN_EXCLUDE,
+-                           (SQTT_TOKEN_VALU | SQTT_TOKEN_WVRDY | SQTT_TOKEN_WAVE | SQTT_TOKEN_REG |
+-                            SQTT_TOKEN_IMMED | SQTT_TOKEN_INST) ^
+-                               0x7FF);
++        SET_REG_FIELD_BITS(SQ_THREAD_TRACE_TOKEN_MASK, TOKEN_EXCLUDE, 0);
+     return sq_thread_trace_token_mask;
+ #else
+     return 0;
 diff --git a/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h b/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h
-index 6ef27f1..d6fed66 100644
+index adf7249552..e8eb8cab1c 100644
 --- a/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h
 +++ b/projects/aqlprofile/gfxip/gfx12/gfx12_primitives.h
 @@ -492,9 +492,7 @@ class gfx12_cntx_prim {
