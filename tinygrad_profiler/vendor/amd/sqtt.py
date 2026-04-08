@@ -654,6 +654,10 @@ def map_insts(data:bytes, lib:bytes, target:str, cu:int=0, simd:int=0,
     if hasattr(p, "cu") and getattr(p, "cu") != cu: return False
     if hasattr(p, "simd") and getattr(p, "simd") != simd: return False
     return True
+
+  def _op_name(op) -> str:
+    return op.name if isinstance(op, Enum) else f"0x{op:02x}"
+
   for p in decode(data):
     if not unit_select(p): continue
     if isinstance(p, (WAVESTART, WAVESTART_RDNA4, CDNA_WAVESTART)):
@@ -670,14 +674,14 @@ def map_insts(data:bytes, lib:bytes, target:str, cu:int=0, simd:int=0,
           wave_pc[wave] += inst.size()
           yield (p, InstructionInfo(pc, wave, inst))
     # map INST events on this SIMD to the program counter, we know the waves
-    elif isinstance(p, (VALUINST, INST, INST_RDNA4, IMMEDIATE)) and not (isinstance(p, (INST, INST_RDNA4)) and p.op.name.startswith("OTHER_")):
+    elif isinstance(p, (VALUINST, INST, INST_RDNA4, IMMEDIATE)) and not (isinstance(p, (INST, INST_RDNA4)) and _op_name(p.op).startswith("OTHER_")):
       inst = pc_map[pc:=wave_pc[p.wave]]
       # s_delay_alu, s_wait_alu and s_barrier_wait instructions are skipped
       while (inst_op:=getattr(inst, 'op_name', '')) in {"S_DELAY_ALU", "S_WAIT_ALU", "S_BARRIER_WAIT"}:
         wave_pc[p.wave] += inst.size()
         inst = pc_map[pc:=wave_pc[p.wave]]
       # assert branch always has a JUMP packet
-      if "BRANCH" in inst_op and not (isinstance(p, (INST, INST_RDNA4)) and p.op.name.startswith("JUMP")):
+      if "BRANCH" in inst_op and not (isinstance(p, (INST, INST_RDNA4)) and _op_name(p.op).startswith("JUMP")):
         raise AssertionError(f"{inst_op} can only be followed by JUMP, got {p}")
       # JUMP handling
       if isinstance(p, (INST, INST_RDNA4)) and p.op in {InstOp.JUMP, InstOpRDNA4.JUMP}:

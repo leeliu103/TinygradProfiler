@@ -69,18 +69,27 @@ def sqtt_timeline(data: bytes, lib: bytes, target: str, cu: int = 0, simd: int =
   dispatch_to_exec = {"WMMA":"VALU", "VALU":"VALU", "VALU1":"VALU", "VALUT":"VALU", "VALUB":"VALU", "VALUINST":"VALU", "VINTERP":"VALU",
                       "SGMEM":"VMEM", "FLAT":"VMEM", "LDS":"LDS", "SALU":"SALU", "SMEM":"SALU", "VMEM":"VMEM"}
 
+  def pop_exec_pending(name: str) -> tuple[str, str] | None:
+    candidates = (name, name[:-4]) if name.endswith("_ALT") else (name, f"{name}_ALT")
+    for candidate in candidates:
+      queue = exec_pending.get(candidate)
+      if queue:
+        return queue.pop(0)
+    return None
+
   def add(name: str, p: PacketType, wave: int | None = None, info: InstructionInfo | None = None) -> Generator[ProfileEvent, None, None]:
     row = "OTHER" if name.startswith("OTHER_") else f"WAVE:{wave}" if (wave := getattr(p, "wave", wave)) is not None \
         else f"{p.__class__.__name__}:0 {name.replace('_ALT', '')}"
     start_time, end_time = p._time, p._time + 1
     link = f"PC:{info.pc}" if info is not None else None
     if isinstance(p, (ALUEXEC, VMEMEXEC)):
-      dispatch_id, op_type = exec_pending[name].pop(0)
-      duration = int(dur_match.group(1)) if (dur_match := re.match(r".*_(\d+)$", op_type)) else 1
-      start_time, end_time = p._time - duration, p._time
-      link = f"LINK:{dispatch_id}"
-      if op_type.startswith("WMMA"):
-        name += "_WMMA"
+      if (pending := pop_exec_pending(name)) is not None:
+        dispatch_id, op_type = pending
+        duration = int(dur_match.group(1)) if (dur_match := re.match(r".*_(\d+)$", op_type)) else 1
+        start_time, end_time = p._time - duration, p._time
+        link = f"LINK:{dispatch_id}"
+        if op_type.startswith("WMMA"):
+          name += "_WMMA"
     idx = next(row_counts.setdefault(row, itertools.count(0)))
     if isinstance(p, (VALUINST, INST, INST_RDNA4)) and (exec_type := dispatch_to_exec.get(name.replace("OTHER_", "").split("_")[0])) is not None:
       if name.startswith("OTHER_"):

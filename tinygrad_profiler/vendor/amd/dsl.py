@@ -137,7 +137,11 @@ class EnumBitField(BitField):
     if self.allowed is not None and val not in self.allowed:
       raise RuntimeError(f"opcode {val.name} not allowed in this encoding")
     return val.value
-  def decode(self, raw): return self._enum(raw)
+  def decode(self, raw):
+    try:
+      return self._enum(raw)
+    except ValueError:
+      return raw
 
 # ══════════════════════════════════════════════════════════════
 # Typed fields

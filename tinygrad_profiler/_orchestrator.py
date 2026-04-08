@@ -204,10 +204,7 @@ def _discover_candidate(capture_dir: Path, kernel_name: str, kernel_iteration: i
   iteration_matches = _match_kernel_iteration(dispatch_rows, kernel_iteration)
   if not iteration_matches:
     raise ValueError(f"kernel {kernel_name!r} iteration {kernel_iteration} is out of range; matching dispatches: {_format_dispatch_rows(dispatch_rows)}")
-  if len(iteration_matches) > 1:
-    raise ValueError(f"kernel {kernel_name!r} iteration {kernel_iteration} matched multiple kernel ids / dispatches: "
-                     f"{_format_dispatch_rows(iteration_matches)}")
-  dispatch = iteration_matches[0]
+  dispatch = _select_iteration_dispatch(iteration_matches, att_files)
   if (att_info := att_files.get(dispatch["dispatch_id"])) is None:
     captured = ", ".join(str(dispatch_id) for dispatch_id in sorted(att_files)) or "none"
     raise FileNotFoundError(f"missing ATT blob for kernel {kernel_name!r} iteration {kernel_iteration} dispatch {dispatch['dispatch_id']} "
@@ -256,6 +253,15 @@ def _match_kernel_iteration(dispatch_rows: list[dict[str, int | str]], kernel_it
   for row in dispatch_rows:
     by_kernel_id.setdefault(int(row["kernel_id"]), []).append(row)
   return [rows[kernel_iteration - 1] for rows in by_kernel_id.values() if len(rows) >= kernel_iteration]
+
+
+def _select_iteration_dispatch(iteration_matches: list[dict[str, int | str]], att_files: dict[int, dict[str, int | Path]]) -> dict[str, int | str]:
+  # rocprofv3 can emit one ATT capture per kernel_id for the same demangled kernel
+  # name. Prefer the earliest captured dispatch so profile-webui can keep working on
+  # workloads that JIT or reload identical kernels into multiple code objects.
+  captured_matches = [row for row in iteration_matches if int(row["dispatch_id"]) in att_files]
+  candidates = captured_matches or iteration_matches
+  return min(candidates, key=lambda row: int(row["dispatch_id"]))
 
 
 def _format_dispatch_rows(dispatch_rows: list[dict[str, int | str]]) -> str:
